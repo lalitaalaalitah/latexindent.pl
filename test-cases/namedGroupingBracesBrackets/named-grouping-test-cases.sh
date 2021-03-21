@@ -36,5 +36,6 @@ latexindent.pl -s tikz4.tex -o tikz4-default.tex -l ../texexchange/indentPreambl
 latexindent.pl -s tikz4.tex -o tikz4-no-add-global.tex -l ../texexchange/indentPreamble.yaml,noAddGlobNamed.yaml
 # issue 241: https://github.com/cmhughes/latexindent.pl/issues/241
 latexindent.pl -l issue241.yaml issue241.tex -o +-mod1
+latexindent.pl -l issue241-mod2.yaml issue241.tex -o +-mod2
 git status
 [[ $noisyMode == 1 ]] && makenoise

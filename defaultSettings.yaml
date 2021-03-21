@@ -32,6 +32,9 @@
 #
 # Please read the manual (linked from above) first to understand what each switch does.
 
+# latexindent YAML keys are *case sensitive* by default
+yamlCaseSensitive: 1
+
 # latexindent can be called to act on a file without using the file's extension, 
 # e.g, simply
 #       latexindent myfile

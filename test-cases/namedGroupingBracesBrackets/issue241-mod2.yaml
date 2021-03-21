@@ -1,0 +1,47 @@
+yamlCaseSensitive: 0
+DeFauLtINdent: ' '
+
+verbatimEnvironments:
+    Verbatim: 1
+
+specialBeginEnd:
+    specialBeforeComMANd: 1
+    cmh:
+        begin: '/[CK]'
+        end: '\['
+        lookForThis: verbatim
+    angledBrackets:
+        beGin: '\<\<'
+        enD: '\>\>'
+        lOOkForThis: 1
+
+fineTuning:
+    NamedGroupingBracesBrackets:
+      name: '[0-9\.a-zA-Z@\*><\/]+?'
+      follow: '\h|\R|\{|\[|\$|\)|\('
+replacements:
+  - 
+    Amalgamate: 1
+  -
+    this: 'cmh'
+    that: 'anything'
+
+logFilePreferences:
+    showAmalgamatedSettings: 1
+
+commandCodeBlocks:
+    stringsAllowedBetweenArguments:
+      - 
+        AmaLgamAte: 1
+iNDEntaFTERHeadings:
+    dummyheading:
+       InDentAftErtHisHeADINg: 0
+       lEVEl: 1
+lookForAlignDelims:
+   tabular: 
+      DELIMS: 0
+      alignDoubleBackSlash: 0
+      SPACESBEFOREDOUBLEBACKSLASH: 0
+      mulTicolumngroUping: 1
+   tabularx:
+      DELIMS: 1

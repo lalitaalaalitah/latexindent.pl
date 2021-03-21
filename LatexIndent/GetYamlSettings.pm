@@ -48,7 +48,10 @@ our @alignAtAmpersandInformation = (   {name=>"lookForAlignDelims",yamlname=>"de
                                        {name=>"delimiterRegEx",default=>"(?<!\\\\)(&)"},
                                        {name=>"delimiterJustification",default=>"left"},
                                         );
-    
+
+our $alignAtAmpersandInformationNames = q();
+our %camelCase;
+
 sub yaml_read_settings{
   my $self = shift;
   
@@ -126,6 +129,9 @@ sub yaml_read_settings{
      }
   }
   
+  # construct %camelCase hash for case-sensitive/case-insensitive considerations
+  &yaml_set_camel_case();
+
   # default value of readLocalSettings
   #
   #       latexindent -l myfile.tex
@@ -221,22 +227,63 @@ sub yaml_read_settings{
   }
 
   # heading for the log file
-  $logger->info("*YAML settings, reading from the following files:") if @absPaths;
+  $logger->info("*YAML settings will be read from the following files: ".join(",",@absPaths)) if @absPaths;
 
   # read in the settings from each file
   foreach my $settings (@absPaths) {
     # check that the settings file exists and that it isn't empty
     if (-e $settings and !(-z $settings)) {
-        $logger->info("Reading USER settings from $settings");
+        $logger->info("*Reading USER settings from $settings");
         $userSettings = YAML::Tiny->read( "$settings" );
-  
+
         # if we can read userSettings
         if($userSettings) {
+
+              # case sensitivity check as first thing
+              foreach my  $firstLevelKey (keys %{$userSettings->[0]}){
+                  if ( !$masterSettings{yamlCaseSensitive} 
+                         and lc($firstLevelKey) eq 'yamlCaseSensitive' ){
+                         ${$userSettings->[0]}{yamlCaseSensitive} = delete  ${$userSettings->[0]}{$firstLevelKey};
+                         $logger->info("interpreting $firstLevelKey as yamlCaseSensitive (yamlCaseSensitive is 0)");
+                  }
+              }
+
+              if( defined ${$userSettings->[0]}{yamlCaseSensitive} ){
+                  $masterSettings{yamlCaseSensitive} = ${$userSettings->[0]}{yamlCaseSensitive};
+                  if( ${$userSettings->[0]}{yamlCaseSensitive} == 0 ){
+                      $logger->info("yamlCaseSensitive set to 0 (default) so yaml keys are case INSENSITIVE");
+                  }
+                  else {
+                     $masterSettings{yamlCaseSensitive} = 1;
+                     $logger->info("yamlCaseSensitive set to 1 so yaml keys are case *SENSITIVE*, so you're committing to the names in defaultSettings.yaml");
+                  }
+              }
+
               # update the MASTER setttings to include updates from the userSettings
-              while(my($firstLevelKey, $firstLevelValue) = each %{$userSettings->[0]}) {
+              foreach my  $firstLevelKey (keys %{$userSettings->[0]}){
+                      my $firstLevelValue = ${$userSettings->[0]}{$firstLevelKey};
+
+                      # case sensitive check: FIRST level
+                      if (!$masterSettings{yamlCaseSensitive}){
+                        my $newfirstLevelKey;
+                        ($newfirstLevelKey) = &yaml_key_case_check($firstLevelKey);
+                        ${$userSettings->[0]}{$newfirstLevelKey} = delete ${$userSettings->[0]}{$firstLevelKey};
+                        $firstLevelKey = $newfirstLevelKey;
+                      }
+                      
                       # the update approach is slightly different for hashes vs scalars/arrays
                       if (ref($firstLevelValue) eq "HASH") {
-                          while(my ($secondLevelKey,$secondLevelValue) = each %{$userSettings->[0]{$firstLevelKey}}) {
+                          foreach my $secondLevelKey (keys %{$firstLevelValue}) {
+                            my $secondLevelValue = ${$userSettings->[0]{$firstLevelKey}}{$secondLevelKey};
+
+                            # case sensitive check: SECOND level
+                            if (!$masterSettings{yamlCaseSensitive}){
+                              my $newsecondLevelKey;
+                              ($firstLevelKey, $newsecondLevelKey) = &yaml_key_case_check($firstLevelKey,$secondLevelKey);
+                              ${$userSettings->[0]{$firstLevelKey}}{$newsecondLevelKey} = delete  ${$userSettings->[0]{$firstLevelKey}}{$secondLevelKey};
+                              $secondLevelKey = $newsecondLevelKey;
+                            }
+                      
                             if (ref $secondLevelValue eq "HASH"){
                                 # if masterSettings already contains a *scalar* value in secondLevelKey
                                 # then we need to delete it (test-cases/headings-first.tex with indentRules1.yaml first demonstrated this)
@@ -244,7 +291,17 @@ sub yaml_read_settings{
                                     $logger->trace("*masterSettings{$firstLevelKey}{$secondLevelKey} currently contains a *scalar* value, but it needs to be updated with a hash (see $settings); deleting the scalar") if($is_t_switch_active);
                                     delete $masterSettings{$firstLevelKey}{$secondLevelKey} ;
                                 }
-                                while(my ($thirdLevelKey,$thirdLevelValue) = each %{$secondLevelValue}) {
+                                foreach my $thirdLevelKey (keys %{$secondLevelValue}) {
+                                    my $thirdLevelValue = ${$userSettings->[0]{$firstLevelKey}}{$secondLevelKey}{$thirdLevelKey};
+
+                                    # case sensitive check: THIRD level
+                                    if (!$masterSettings{yamlCaseSensitive}){
+                                      my $newthirdLevelKey;
+                                      ($firstLevelKey, $secondLevelKey,$newthirdLevelKey) = &yaml_key_case_check($firstLevelKey,$secondLevelKey,$thirdLevelKey);
+                                      ${$userSettings->[0]{$firstLevelKey}}{$secondLevelKey}{$newthirdLevelKey} = delete  ${$userSettings->[0]{$firstLevelKey}}{$secondLevelKey}{$thirdLevelKey};
+                                      $thirdLevelKey = $newthirdLevelKey;
+                                    }
+                      
                                     if (ref $thirdLevelValue eq "HASH"){
                                         # similarly for third level
                                         if (ref $masterSettings{$firstLevelKey}{$secondLevelKey}{$thirdLevelKey} ne "HASH"){
@@ -259,6 +316,21 @@ sub yaml_read_settings{
                                     }
                                 }
                             } else {
+
+                               # case check for amalgamate key
+                               if( ref($secondLevelValue) eq "ARRAY" and !$masterSettings{yamlCaseSensitive}){
+                                   foreach my $lookingForAmalgamate (keys %{${$secondLevelValue}[0]}){
+                                       if ( $lookingForAmalgamate eq 'amalgamate' ){
+                                           last;
+                                       }
+                                       elsif ( lc($lookingForAmalgamate) eq 'amalgamate' ){
+                                         $logger->info("interpreting $secondLevelKey: $lookingForAmalgamate as $secondLevelKey: amalgamate (yamlCaseSensitive is 0)");
+                                         ${$secondLevelValue}[0]->{amalgamate} = delete ${$secondLevelValue}[0]->{$lookingForAmalgamate};
+                                         last;
+                                       }
+                                   }
+                                }
+
                                 # settings such as commandCodeBlocks can have arrays, which may wish 
                                 # to be amalgamated, rather than overwritten
                                 if(ref($secondLevelValue) eq "ARRAY" 
@@ -288,6 +360,21 @@ sub yaml_read_settings{
                             }
                           }
                       } elsif (ref($firstLevelValue) eq "ARRAY") {
+
+                            # case check for amalgamate key
+                            if (!$masterSettings{yamlCaseSensitive}){
+                                foreach my $lookingForAmalgamate (keys %{${$firstLevelValue}[0]}){
+                                    if ( $lookingForAmalgamate eq 'amalgamate' ){
+                                        last;
+                                    }
+                                    elsif ( lc($lookingForAmalgamate) eq 'amalgamate' ){
+                                        $logger->info("interpreting $firstLevelKey: $lookingForAmalgamate as $firstLevelKey: amalgamate (yamlCaseSensitive is 0)");
+                                        ${$firstLevelValue}[0]->{amalgamate} = delete ${$firstLevelValue}[0]->{$lookingForAmalgamate};
+                                        last;
+                                    }
+                                }
+                            }
+
                             # update amalgamate in master settings
                             if(ref(${$firstLevelValue}[0]) eq "HASH" and defined ${$firstLevelValue}[0]{amalgamate}){
                                ${$masterSettings{$firstLevelKey}[0]}{amalgamate} = ${$firstLevelValue}[0]{amalgamate};
@@ -526,11 +613,123 @@ sub yaml_read_settings{
   # which details the overall state of the settings modified
   # from the default in various user files
   if($masterSettings{logFilePreferences}{showAmalgamatedSettings}){
-      $logger->info("Amalgamated/overall settings to be used:");
+      $logger->info("*Amalgamated/overall settings to be used:");
       $logger->info(Dump \%masterSettings);
   }
 
   return;
+}
+
+sub yaml_key_case_check{
+    my @yamlKeys = @_;
+    
+    return unless scalar(@yamlKeys)>0;
+
+    my $firstLevelKey = $yamlKeys[0];
+    my @yamlKeysCaseChecked;
+
+    if ( scalar(@yamlKeys)==3 ){
+       # THIRD level
+       #
+       # note: the first and second levels will already have been checked
+       #       by a previous call
+       # 
+       # example:
+       #
+       # specialBeginEnd:                   *first*  level
+       #     specialBeforeComMANd: 1        *second* level
+       #     cmh:                           *second* level
+       #         begin: '/[CK]'       <---- *third*  level
+       #         end: '\['
+       #         lookForThis: verbatim
+       my $secondLevelKey = $yamlKeys[1];
+       my $thirdLevelKey = $yamlKeys[2];
+
+       if (   $firstLevelKey eq 'specialBeginEnd' and lc($thirdLevelKey) =~ m/(begin|end|lookforthis)/
+              or 
+              $firstLevelKey eq 'indentAfterHeadings' and lc($thirdLevelKey) =~ m/(indentafterthisheading|level)/ 
+              or
+              $firstLevelKey eq 'lookForAlignDelims' and lc($thirdLevelKey) =~ m/($alignAtAmpersandInformationNames)/ 
+            ){
+              $logger->info("interpreting $firstLevelKey:$secondLevelKey:$thirdLevelKey as $firstLevelKey:$secondLevelKey:".($camelCase{$1}?$camelCase{$1}:$1)." (3rd level key, yamlCaseSensitive is 0)");
+              $thirdLevelKey = ( $camelCase{$1} ? $camelCase{$1} : $1 ); 
+       }
+       elsif (not defined $masterSettings{$firstLevelKey}{$secondLevelKey}{$thirdLevelKey}){
+          foreach my $masterThirdLevelKey (keys %{$masterSettings{$firstLevelKey}{$secondLevelKey}}){
+            if(lc($thirdLevelKey) eq lc($masterThirdLevelKey) ){
+               $logger->info("interpreting $firstLevelKey:$secondLevelKey:$thirdLevelKey as $firstLevelKey:$secondLevelKey:$masterThirdLevelKey (3rd level key, yamlCaseSensitive is 0)");
+               $thirdLevelKey = $masterThirdLevelKey; 
+            }
+          }
+       }
+
+       @yamlKeysCaseChecked = ($firstLevelKey,$secondLevelKey,$thirdLevelKey); 
+    }
+    elsif ( scalar(@yamlKeys)==2 ){
+       # second level
+       #
+       # note: the first level will already have been checked
+       #       by a previous call
+       # 
+       # example:
+       #
+       # specialBeginEnd:                   *first*  level
+       #     specialBeforeComMANd: 1  <---- *second* level
+       #     cmh:                     <---- *second* level
+       #         begin: '/[CK]'             *third*  level
+       #         end: '\['
+       #         lookForThis: verbatim
+       my $secondLevelKey = $yamlKeys[1];
+       if (not defined $masterSettings{$firstLevelKey}{$secondLevelKey}){
+          foreach my $masterSecondLevelKey (keys %{$masterSettings{$firstLevelKey}}){
+            if(lc($secondLevelKey) eq lc($masterSecondLevelKey) ){
+               $logger->info("interpreting $firstLevelKey:$secondLevelKey as $firstLevelKey:$masterSecondLevelKey (2nd level key, yamlCaseSensitive is 0)");
+               $secondLevelKey = $masterSecondLevelKey; 
+            }
+          }
+       }
+       @yamlKeysCaseChecked = ($firstLevelKey,$secondLevelKey); 
+    }
+    else {
+       # first level
+       # example:
+       #
+       # specialBeginEnd:             <---- *first*  level
+       #     specialBeforeComMANd: 1        *second* level
+       #     cmh:                           *second* level
+       #         begin: '/[CK]'             *third*  level
+       #         end: '\['
+       #         lookForThis: verbatim
+       if (not defined $masterSettings{$firstLevelKey}){
+          foreach my $masterFirstLevelKey (keys %masterSettings){
+            if(lc($firstLevelKey) eq lc($masterFirstLevelKey) ){
+               $logger->info("interpreting $firstLevelKey as $masterFirstLevelKey (1st level key, yamlCaseSensitive is 0)");
+               $firstLevelKey = $masterFirstLevelKey; 
+            }
+          }
+       }
+       @yamlKeysCaseChecked = ($firstLevelKey); 
+    }
+
+    return @yamlKeysCaseChecked; 
+}
+sub yaml_set_camel_case{
+    # PURPOSE
+    #
+    #   populate the %camelCase hash that contains case 
+    #   information about yaml keys to allow users to 
+    #   specify yaml keys case insensitively
+    #
+    
+    $alignAtAmpersandInformationNames .= ($alignAtAmpersandInformationNames ne '' ? "|" :q()).lc(${$_}{name}) for @alignAtAmpersandInformation; 
+    
+    %camelCase = (lookforthis            =>'lookForThis',
+                  indentafterthisheading =>'indentAfterThisHeading',);
+
+    for (@alignAtAmpersandInformation){
+        $camelCase{lc(${$_}{name})}=${$_}{name};
+    }
+    return;
 }
 
 sub yaml_get_indentation_settings_for_this_object{
